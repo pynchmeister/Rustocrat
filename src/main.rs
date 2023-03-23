@@ -1,7 +1,13 @@
 use clap::{App, Arg, SubCommand};
 use dao_framework::dao::{Dao, Member, Proposal};
+use std::sync::{Arc, Mutex};
+use warp::{self, Filter, Reply};
+use dao_framework::api::routes;
 
-fn main() {
+type SharedDao = Arc<Mutex<Dao>>;
+
+#[tokio::main]
+async fn main() {
     let matches = App::new("Rustocrat")
         .version("0.1.0")
         .author("Your Name <your.email@example.com>")
@@ -23,12 +29,28 @@ fn main() {
         )
         .get_matches();
 
-    let mut dao = Dao::new();
+    let dao = Arc::new(Mutex::new(Dao::new()));
 
+    // API routes
+    let create_member_route = warp::path!("members")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(with_dao(dao.clone()))
+        .and_then(create_member);
+
+    let create_proposal_route = warp::path!("proposals")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(with_dao(dao.clone()))
+        .and_then(create_proposal);
+
+    let api_routes = create_member_route.or(create_proposal_route);
+
+    // CLI commands
     if let Some(matches) = matches.subcommand_matches("create_member") {
         let address = matches.value_of("address").unwrap().to_string();
         let voting_power = matches.value_of("voting_power").unwrap().parse::<u32>().unwrap();
-        dao.add_member(address, voting_power);
+        dao.lock().unwrap().add_member(address, voting_power);
         println!("Member added!");
     } else if let Some(matches) = matches.subcommand_matches("create_proposal") {
         let id = matches.value_of("id").unwrap().parse::<u32>().unwrap();
